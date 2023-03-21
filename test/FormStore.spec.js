@@ -305,4 +305,16 @@ describe('FormStore with a computed and nested data', function () {
     };
     expect(store.status.hasChanges).to.be.false;
   });
-});
+
+  it('should detect and save deep objet changes if some of the object properties are changed', async() => {
+    server.delete();
+    await store.refresh();
+    store.data.attributes.weight = 100
+    expect(store.status.hasChanges).to.be.true;
+    await store.save();
+    expect(store.dataServer.attributes.weight).to.equal(100);
+    store.data.attributes.heigth = 150
+    expect(store.status.hasChanges).to.be.true;
+    await store.save();
+    expect(store.dataServer.attributes.height).to.equal(null); // server blocks this
+  })});

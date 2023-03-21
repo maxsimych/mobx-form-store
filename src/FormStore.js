@@ -1,5 +1,6 @@
 import { observable, observe, autorun, autorunAsync, action, computed, asMap, isComputedProp, isObservableArray } from 'mobx';
 import extend from 'just-extend';
+import { deepObserve } from 'mobx-utils';
 
 const DEFAULT_SERVER_ERROR_MESSAGE = 'Lost connection to server';
 
@@ -40,20 +41,91 @@ function compareObjects(val1, val2) {
 }
 
 /**
+ * @param {Object} arg
+ * @param {Object} arg.change
+ * @param {String} arg.change.name - name of property that changed
+ * @param {*} arg.change.newValue
+ * @param {FormStore} arg.store
+ * @param {String} arg.deepPath - path of a deep object with changes
+ * @param {Object} arg.dataChangesItem
+ */
+function updateDataChangesItem({ change, dataChangesItem, store, deepPath }) {
+  const serverDataObj = store.dataServer[deepPath];
+  if (serverDataObj) {
+    if (!store.isSame(serverDataObj[change.name], change.newValue)) {
+      dataChangesItem[change.name] = change.newValue;
+    }
+  } else {
+    dataChangesItem[change.name] = change.newValue;
+  }
+}
+
+/**
+ * @param {Object} arg
+ * @param {Object} arg.change
+ * @param {String} arg.change.name - name of property that changed
+ * @param {*} arg.change.newValue
+ * @param {FormStore} arg.store
+ * @param {String} arg.deepPath - path of a deep object with changes
+ */
+function createDataChangesItem({ change, store, deepPath }) {
+  const splitPath = deepPath.split('/');
+  const deepObj = splitPath.reduce((acc, val) => {
+    if (!acc[val]) {
+      acc[val] = {};
+    }
+    return acc[val];
+  }, {});
+  deepObj[change.name] = change.newValue;
+  const serverDataObj = store.dataServer[deepPath];
+  if (serverDataObj) {
+    if (!store.isSame(serverDataObj, deepObj)) {
+      store.dataChanges.set(deepPath, deepObj);
+    }
+  } else {
+    store.dataChanges.set(deepPath, deepObj);
+  }
+}
+
+/**
+ * Updates existing dataChanges of a deep object or creates new dataChanges
+ * @param {Object} arg
+ * @param {Object} arg.change
+ * @param {String} arg.change.name - name of property that changed
+ * @param {*} arg.change.newValue
+ * @param {FormStore} arg.store
+ * @param {String} arg.deepPath - path of a deep object with changes
+ */
+function deepPathChanged({ change, deepPath, store }) {
+  const dataChangesItem = store.dataChanges.get(deepPath);
+  if (isObject(dataChangesItem)) {
+    updateDataChangesItem({ change, deepPath, store, dataChangesItem });
+  } else {
+    console.log('Create data changesItem');
+    createDataChangesItem({ change, deepPath, store });
+  }
+}
+
+/**
  * Observes data and if changes come, add them to dataChanges,
  * unless it resets back to dataServer value, then clear that change
  * @this {FormStore}
  * @param {Object} change
+ * @param {String} [deepPath]
  * @param {String} change.name - name of property that changed
  * @param {*} change.newValue
  */
-function observableChanged(change) {
+function observableChanged(change, deepPath) {
   const store = this;
-  action(() => {
-    store.dataChanges.set(change.name, change.newValue);
 
-    if (store.isSame(store.dataChanges.get(change.name), store.dataServer[change.name])) {
-      store.dataChanges.delete(change.name);
+  action(() => {
+    if (deepPath) {
+      deepPathChanged({ change, deepPath, store });
+    } else {
+      store.dataChanges.set(change.name, change.newValue);
+      if (store.isSame(store.dataChanges.get(change.name), store.dataServer[change.name])) {
+        store.dataChanges.delete(change.name);
+      }
     }
   })();
 }
@@ -254,10 +326,12 @@ class FormStore {
 
     // register observe for changes to properties in store.data as well as to complete replacement of store.data object
     store.storeDataChanged = observableChanged.bind(store);
-    store.observeDataPropertiesDisposer = observe(store.data, store.storeDataChanged);
+    store.observeDataPropertiesDisposer = deepObserve(store.data, store.storeDataChanged);
+    // store.observeDataPropertiesDisposer = observe(store.data, store.storeDataChanged);
     store.observeDataObjectDisposer = observe(store, 'data', () => {
       store.observeDataPropertiesDisposer && store.observeDataPropertiesDisposer();
-      store.observeDataPropertiesDisposer = observe(store.data, store.storeDataChanged);
+      store.observeDataPropertiesDisposer = deepObserve(store.data, store.storeDataChanged);
+      // store.observeDataPropertiesDisposer = observe(store.data, store.storeDataChanged);
 
       store.dataChanges.clear();
       action(() => {
