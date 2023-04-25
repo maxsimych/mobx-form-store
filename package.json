@@ -8,7 +8,7 @@
     "dev": "webpack --progress --colors --watch --mode=dev",
     "test": "mocha --colors ./test/*.spec.js",
     "test:watch": "mocha --colors -w ./test/*.spec.js",
-    "prepublish": "npm build && npm test"
+    "prepublish": "npm run build && npm run test"
   },
   "dependencies": {
     "@babel/polyfill": "^7.12.1",
